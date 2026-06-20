@@ -1,0 +1,1 @@
+- [Stableford+ Stack Decisions](stableford-stack.md) — Vite must run on port 5000 (webview); postcss.config.js required for Tailwind to process in Vite
