@@ -1,7 +1,20 @@
 import Stripe from 'stripe';
-import { StripeSync } from 'stripe-replit-sync';
+
+let StripeSyncClass = null;
+try {
+  const mod = await import('stripe-replit-sync');
+  StripeSyncClass = mod.StripeSync;
+} catch {}
 
 async function getStripeCredentials() {
+  // On Vercel (or any non-Replit env): use standard env vars
+  if (process.env.STRIPE_SECRET_KEY) {
+    return {
+      secretKey: process.env.STRIPE_SECRET_KEY,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    };
+  }
+
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -44,10 +57,11 @@ export async function getUncachableStripeClient() {
 }
 
 export async function getStripeSync() {
+  if (!StripeSyncClass) throw new Error('stripe-replit-sync not available in this environment');
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL environment variable is required');
   const { secretKey, webhookSecret } = await getStripeCredentials();
-  return new StripeSync({
+  return new StripeSyncClass({
     poolConfig: { connectionString: databaseUrl },
     stripeSecretKey: secretKey,
     stripeWebhookSecret: webhookSecret ?? '',

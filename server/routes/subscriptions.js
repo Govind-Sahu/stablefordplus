@@ -1,42 +1,53 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import pool from '../db.js';
-import { getUncachableStripeClient, getStripeSync } from '../stripeClient.js';
+import { getUncachableStripeClient } from '../stripeClient.js';
 
 const router = Router();
 
+function getAppUrl(req) {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  if (process.env.REPLIT_DOMAINS) return `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`;
+  return `${req.protocol}://${req.get('host')}`;
+}
+
 router.get('/plans', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT p.id as product_id, p.name, p.description, p.metadata,
-              pr.id as price_id, pr.unit_amount, pr.currency, pr.recurring
-       FROM stripe.products p
-       JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-       WHERE p.active = true
-       ORDER BY pr.unit_amount ASC`
-    );
+    const stripe = await getUncachableStripeClient();
+    const [products, prices] = await Promise.all([
+      stripe.products.list({ active: true, limit: 20 }),
+      stripe.prices.list({ active: true, limit: 50 }),
+    ]);
+
     const plans = {};
-    for (const row of result.rows) {
-      if (!plans[row.product_id]) {
-        plans[row.product_id] = {
-          id: row.product_id,
-          name: row.name,
-          description: row.description,
-          metadata: row.metadata,
-          prices: [],
-        };
-      }
-      plans[row.product_id].prices.push({
-        id: row.price_id,
-        unit_amount: row.unit_amount,
-        currency: row.currency,
-        recurring: row.recurring,
-      });
+    for (const product of products.data) {
+      plans[product.id] = {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        prices: [],
+      };
     }
-    res.json({ plans: Object.values(plans) });
+    for (const price of prices.data) {
+      if (plans[price.product]) {
+        plans[price.product].prices.push({
+          id: price.id,
+          unit_amount: price.unit_amount,
+          currency: price.currency,
+          recurring: price.recurring,
+        });
+      }
+    }
+
+    const result = Object.values(plans)
+      .filter(p => p.prices.length > 0)
+      .map(p => ({ ...p, prices: p.prices.sort((a, b) => a.unit_amount - b.unit_amount) }));
+
+    res.json({ plans: result });
   } catch (err) {
-    console.error('Get plans error:', err);
-    res.status(500).json({ error: 'Failed to fetch plans' });
+    console.error('Get plans error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch plans', plans: [] });
   }
 });
 
@@ -47,16 +58,15 @@ router.get('/status', authenticate, async (req, res) => {
       [req.user.id]
     );
     if (!user.rows[0]?.stripe_subscription_id) {
-      return res.json({ subscription: null, status: 'inactive' });
+      return res.json({ subscription: null, status: user.rows[0]?.subscription_status || 'inactive' });
     }
-    const sub = await pool.query(
-      'SELECT * FROM stripe.subscriptions WHERE id=$1',
-      [user.rows[0].stripe_subscription_id]
-    );
-    res.json({
-      subscription: sub.rows[0] || null,
-      status: user.rows[0].subscription_status,
-    });
+    try {
+      const stripe = await getUncachableStripeClient();
+      const sub = await stripe.subscriptions.retrieve(user.rows[0].stripe_subscription_id);
+      return res.json({ subscription: sub, status: user.rows[0].subscription_status });
+    } catch {
+      return res.json({ subscription: null, status: user.rows[0].subscription_status });
+    }
   } catch (err) {
     console.error('Get subscription status error:', err);
     res.status(500).json({ error: 'Failed to fetch subscription status' });
@@ -83,7 +93,7 @@ router.post('/checkout', authenticate, async (req, res) => {
       await pool.query('UPDATE users SET stripe_customer_id=$1 WHERE id=$2', [customerId, u.id]);
     }
 
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const baseUrl = getAppUrl(req);
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
@@ -97,7 +107,7 @@ router.post('/checkout', authenticate, async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error('Checkout error:', err);
-    res.status(500).json({ error: 'Failed to create checkout session' });
+    res.status(500).json({ error: err.message || 'Failed to create checkout session' });
   }
 });
 
@@ -108,7 +118,7 @@ router.post('/portal', authenticate, async (req, res) => {
     if (!customerId) return res.status(400).json({ error: 'No Stripe customer found' });
 
     const stripe = await getUncachableStripeClient();
-    const baseUrl = `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}`;
+    const baseUrl = getAppUrl(req);
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${baseUrl}/dashboard`,
@@ -116,7 +126,7 @@ router.post('/portal', authenticate, async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error('Portal error:', err);
-    res.status(500).json({ error: 'Failed to create portal session' });
+    res.status(500).json({ error: err.message || 'Failed to create portal session' });
   }
 });
 
