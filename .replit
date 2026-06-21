@@ -4,6 +4,7 @@ hidden = [".config", "package-lock.json"]
 
 [nix]
 channel = "stable-23_05"
+packages = ["nix-output-monitor"]
 
 [unitTest]
 language = "nodejs"
