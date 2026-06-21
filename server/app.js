@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 
 import authRoutes from './routes/auth.js';
 import scoreRoutes from './routes/scores.js';
@@ -49,11 +50,11 @@ app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
-// Serve React frontend in production
-if (process.env.NODE_ENV === 'production') {
-  const distPath = path.join(__dirname, '../dist');
+// Serve React frontend whenever dist/ exists (production deployment)
+const distPath = path.join(__dirname, '../dist');
+if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req, res) => {
+  app.get('/{*splat}', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
