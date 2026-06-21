@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
-    "build": "vite build && cp dist/index.html dist/404.html",
+    "build": "vite build && node --input-type=module -e \"import{copyFileSync}from'fs';copyFileSync('dist/index.html','dist/404.html')\"",
     "preview": "vite preview",
     "vercel-build": "npm run build"
   },
