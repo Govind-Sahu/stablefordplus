@@ -49,7 +49,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="mt-10 pt-6 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-3">
-          <p className="text-slate-500 text-sm">© 2024 Stableford+. All rights reserved.</p>
+          <p className="text-slate-500 text-sm">© 2026 Stableford+. All rights reserved.</p>
           <p className="text-slate-600 text-xs">Track. Give. Win.</p>
         </div>
       </div>
